@@ -39,7 +39,7 @@ The demo workspace includes the sanitized 2025 Entry Log from the source workboo
 
 ## Stack
 
-Next.js App Router, TypeScript, Tailwind CSS, SQLite via Prisma, Recharts. UI is custom and uses the same patterns as a small shadcn-style kit (buttons, fields, cards) without a CLI install.
+Next.js App Router, TypeScript, Tailwind CSS, Prisma (Postgres in production, SQLite locally), Recharts. UI is custom and uses the same patterns as a small shadcn-style kit (buttons, fields, cards) without a CLI install.
 
 ## Run it
 
@@ -74,7 +74,9 @@ Copy `.env.example` to `.env`.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | SQLite file, default `file:./dev.db` (created under `prisma/`) |
+| `DATABASE_URL` | Local SQLite file (`file:./dev.db`, created under `prisma/`) or the pooled Neon URL. Production is the pooled Neon URL. |
+| `DATABASE_URL_UNPOOLED` | Direct Neon URL used by `prisma migrate deploy`. Required in production. `DIRECT_URL` is accepted as an alias. |
+| `DATABASE_PROVIDER` | Optional. `sqlite` forces the local file database. `postgresql` forces Postgres. Ignored on Vercel, which always uses Postgres. |
 | `NEXT_PUBLIC_APP_URL` | Public origin, used to build the Google redirect URI |
 | `GOOGLE_CLIENT_ID` | OAuth client id. Blank keeps the stub |
 | `GOOGLE_CLIENT_SECRET` | OAuth secret. Token exchange is still stubbed in this build |
@@ -90,12 +92,25 @@ Google scope: `https://www.googleapis.com/auth/calendar.readonly`.
 
 ## Deploy
 
-The app is a standard Next.js server build. SQLite fits a single long-running Node process. On Vercel, replace `DATABASE_URL` with a hosted SQLite-compatible database or another Prisma datasource before you expect data to survive cold starts. `npm run build` generates the Prisma client, applies the schema, seeds the demo user when the database is empty, and then builds Next.js.
+Production is the Vercel project `balance`, backed by the linked Neon store. `DATABASE_URL` is the pooled connection and `DATABASE_URL_UNPOOLED` is the direct connection Prisma uses for migrations. `NEXT_PUBLIC_APP_URL` is `https://balance-woad-six.vercel.app`.
+
+`npm run build` generates the Prisma client, runs `prisma migrate deploy` against `DATABASE_URL_UNPOOLED`, seeds `demo@balance.app` / `balance-demo` when the database has no users, then builds Next.js. Local SQLite (`file:./dev.db`) still uses `prisma db push` instead of migrations.
+
+After merge and redeploy:
+
+```bash
+curl -sI https://balance-woad-six.vercel.app/login
+```
+
+Expect HTTP 200. Open `/login`, submit `demo@balance.app` / `balance-demo`, and land on `/app`.
+
+Local SQLite is unchanged: copy `.env.example` to `.env` and run `npm run dev`.
 
 ## Scripts
 
-- `npm run dev` — local dev server
-- `npm run build` — generate client, push schema, seed if empty, production build
+- `npm run dev` — apply the local schema, seed when empty, start the dev server
+- `npm run build` — generate the client, migrate (Postgres) or push (SQLite), seed when empty, production build
 - `npm start` — serve the production build
-- `npm test` — parser and untracked-time tests
+- `npm test` — parser, untracked-time, and database-url tests
+- `npm run db:setup` — generate the client, apply the schema, and seed when empty
 - `npm run db:seed` — seed again (no-op once a user exists)
