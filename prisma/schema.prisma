@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  name             String
+  passwordHash     String
+  plan             String   @default("FREE")
+  onboarded        Boolean  @default(false)
+  timezone         String   @default("America/New_York")
+  trackingYear     Int
+  calendarId       String   @default("")
+  googleConnected  Boolean  @default(false)
+  stripeCustomerId String   @default("")
+  createdAt        DateTime @default(now())
+
+  sessions      Session[]
+  groups        CategoryGroup[]
+  subcategories Subcategory[]
+  entries       TimeEntry[]
+  qualities     QualitativeDay[]
+  habits        Habit[]
+  habitLogs     HabitLog[]
+  importErrors  ImportError[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CategoryGroup {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug        String
+  name        String
+  goalPercent Float
+  color       String
+  includes    String        @default("")
+  sortOrder   Int
+  subcategories Subcategory[]
+
+  @@unique([userId, slug])
+}
+
+model Subcategory {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId   String
+  group     CategoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name      String
+  key       String
+  sortOrder Int
+  active    Boolean       @default(true)
+
+  primaryEntries   TimeEntry[] @relation("PrimaryEntries")
+  secondaryEntries TimeEntry[] @relation("SecondaryEntries")
+
+  @@unique([userId, key])
+}
+
+model TimeEntry {
+  id                     String       @id @default(cuid())
+  userId                 String
+  user                   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subcategoryId          String?
+  subcategory            Subcategory? @relation("PrimaryEntries", fields: [subcategoryId], references: [id], onDelete: SetNull)
+  secondarySubcategoryId String?
+  secondary              Subcategory? @relation("SecondaryEntries", fields: [secondarySubcategoryId], references: [id], onDelete: SetNull)
+  title                  String
+  date                   String
+  startTime              String?
+  endTime                String?
+  hours                  Float
+  notes                  String       @default("")
+  source                 String       @default("manual")
+  externalId             String?
+  createdAt              DateTime     @default(now())
+
+  @@index([userId, date])
+  @@index([userId, externalId])
+}
+
+model QualitativeDay {
+  id         String @id @default(cuid())
+  userId     String
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date       String
+  motivation Int?
+  sleepScore Int?
+  workScore  Int?
+  lifeScore  Int?
+  healthScore Int?
+
+  @@unique([userId, date])
+}
+
+model Habit {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int
+  active    Boolean    @default(true)
+  logs      HabitLog[]
+}
+
+model HabitLog {
+  id      String  @id @default(cuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habitId String
+  habit   Habit   @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  date    String
+  done    Boolean
+
+  @@unique([habitId, date])
+  @@index([userId, date])
+}
+
+model ImportError {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  eventTitle   String
+  message      String
+  functionName String
+  context      String   @default("")
+}
