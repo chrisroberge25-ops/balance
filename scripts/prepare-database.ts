@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { isPoolerUrl, isPostgresUrl, resolveDatabase } from "../lib/database-url";
+import { isPoolerUrl, isPostgresUrl, resolveDatabase, withoutChannelBinding } from "../lib/database-url";
 
 loadEnvFile(resolve(process.cwd(), ".env"));
 
@@ -21,12 +21,13 @@ try {
       run(resolve(process.cwd(), "node_modules", ".bin", "tsx"), ["prisma/seed.ts"]);
     }
   } else {
-    if (!resolved.directUrl) throw new Error("Postgres requires a direct migration URL.");
+    if (!resolved.directUrl) throw new Error("Postgres requires DATABASE_URL_UNPOOLED for migrations.");
     if (!isPostgresEnv(process.env.DATABASE_URL)) process.env.DATABASE_URL = stripClientParams(resolved.databaseUrl);
-    process.env.DIRECT_URL = resolved.directUrl;
+    process.env.DATABASE_URL = withoutChannelBinding(process.env.DATABASE_URL ?? resolved.directUrl);
+    process.env.DATABASE_URL_UNPOOLED = resolved.directUrl;
     if (isPoolerUrl(resolved.directUrl)) {
       console.warn(
-        "DIRECT_URL points at a pooled host. prisma migrate deploy needs the direct connection (DATABASE_URL_UNPOOLED or DIRECT_URL without -pooler).",
+        "DATABASE_URL_UNPOOLED points at a pooled host. prisma migrate deploy needs the direct Neon URL (hostname without -pooler).",
       );
     }
     run(prismaBin, ["generate", "--schema", schemaPath]);
@@ -41,7 +42,7 @@ try {
     console.warn(message);
     console.warn("Generating the Postgres client with a placeholder URL. The build stops until a real DATABASE_URL is set.");
     process.env.DATABASE_URL = "postgresql://placeholder:placeholder@127.0.0.1:5432/balance";
-    process.env.DIRECT_URL = process.env.DATABASE_URL;
+    process.env.DATABASE_URL_UNPOOLED = process.env.DATABASE_URL;
     run(prismaBin, ["generate", "--schema", schemaPath]);
     process.exit(0);
   }
@@ -52,7 +53,7 @@ try {
 function toSqliteSchema(source: string) {
   return source
     .replace(/provider\s*=\s*"postgresql"/, 'provider = "sqlite"')
-    .replace(/^[ \t]*directUrl\s*=\s*env\("DIRECT_URL"\)\r?\n/m, "");
+    .replace(/^[ \t]*directUrl\s*=\s*env\("DATABASE_URL_UNPOOLED"\)\r?\n/m, "");
 }
 
 function isPostgresEnv(url: string | undefined) {

@@ -74,9 +74,8 @@ Copy `.env.example` to `.env`.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Local SQLite file (`file:./dev.db`, created under `prisma/`) or a hosted Postgres URL. Production must be Postgres. |
-| `DIRECT_URL` | Direct Postgres URL used by `prisma migrate deploy`. Optional when `DATABASE_URL_UNPOOLED` is set. |
-| `DATABASE_URL_UNPOOLED` | Set by the Neon integration. Used as the migration URL when `DIRECT_URL` is empty. |
+| `DATABASE_URL` | Local SQLite file (`file:./dev.db`, created under `prisma/`) or the pooled Neon URL. Production is the pooled Neon URL. |
+| `DATABASE_URL_UNPOOLED` | Direct Neon URL used by `prisma migrate deploy`. Required in production. `DIRECT_URL` is accepted as an alias. |
 | `DATABASE_PROVIDER` | Optional. `sqlite` forces the local file database. `postgresql` forces Postgres. Ignored on Vercel, which always uses Postgres. |
 | `NEXT_PUBLIC_APP_URL` | Public origin, used to build the Google redirect URI |
 | `GOOGLE_CLIENT_ID` | OAuth client id. Blank keeps the stub |
@@ -93,46 +92,19 @@ Google scope: `https://www.googleapis.com/auth/calendar.readonly`.
 
 ## Deploy
 
-Production runs on Vercel. A SQLite file (`file:./dev.db`) is created during the build and then disappears on the serverless filesystem, so `/login` returns 500. Production needs hosted Postgres.
+Production is the Vercel project `balance`, backed by the linked Neon store. `DATABASE_URL` is the pooled connection and `DATABASE_URL_UNPOOLED` is the direct connection Prisma uses for migrations. `NEXT_PUBLIC_APP_URL` is `https://balance-woad-six.vercel.app`.
 
-`npm run build` generates the Prisma client, applies the schema (`prisma migrate deploy` for Postgres, `prisma db push` for local SQLite), seeds `demo@balance.app` / `balance-demo` when the database has no users, then builds Next.js. On Vercel that build fails fast if `DATABASE_URL` is still a `file:` URL and no Postgres URL is present.
+`npm run build` generates the Prisma client, runs `prisma migrate deploy` against `DATABASE_URL_UNPOOLED`, seeds `demo@balance.app` / `balance-demo` when the database has no users, then builds Next.js. Local SQLite (`file:./dev.db`) still uses `prisma db push` instead of migrations.
 
-### Vercel env
-
-Set these on the `balance` project for Production, Preview, and Development, then redeploy:
-
-| Variable | Value |
-| --- | --- |
-| `DATABASE_URL` | Neon pooled URL (`-pooler` host, `sslmode=require`). The integration sets this. |
-| `DATABASE_URL_UNPOOLED` | Neon direct URL (no `-pooler`). The integration sets this. `DIRECT_URL` is the same string if you are not using Neon’s name. |
-| `NEXT_PUBLIC_APP_URL` | `https://balance-woad-six.vercel.app` |
-
-Leave `GOOGLE_*` and `STRIPE_*` unset. The app keeps its stubs.
-
-The project already has `DATABASE_URL=file:./dev.db`. Delete that variable before connecting Neon. The integration does not overwrite an existing `DATABASE_URL`.
-
-### Provision Neon (free)
-
-Neon is the Vercel Marketplace Postgres. The team install can already exist; the database still has to be created and connected to this project.
-
-1. Open the [balance project env vars](https://vercel.com/balance-3a55/balance/settings/environment-variables) and delete `DATABASE_URL` if its value is `file:./dev.db`.
-2. Open [Neon in the Vercel Marketplace](https://vercel.com/marketplace/neon) and create a database on the **Free** plan, or from a linked checkout run:
-   ```bash
-   vercel integration add neon --name balance --plan free -e production -e preview -e development
-   ```
-3. Connect the resource to the `balance` project. Confirm `DATABASE_URL` and `DATABASE_URL_UNPOOLED` exist and are not `file:` URLs.
-4. Set `NEXT_PUBLIC_APP_URL` to `https://balance-woad-six.vercel.app`.
-5. Merge and redeploy. The build migrates `prisma/migrations` and seeds the demo user.
-
-### Confirm login after deploy
+After merge and redeploy:
 
 ```bash
 curl -sI https://balance-woad-six.vercel.app/login
 ```
 
-Expect `HTTP/2 200`. Open `/login`, submit `demo@balance.app` / `balance-demo`, and land on `/app`.
+Expect HTTP 200. Open `/login`, submit `demo@balance.app` / `balance-demo`, and land on `/app`.
 
-Local SQLite is unchanged: copy `.env.example` to `.env` and run `npm run dev`. To point a laptop at Postgres, set `DATABASE_URL` and `DIRECT_URL` (or `DATABASE_URL_UNPOOLED`) to Postgres URLs instead of `file:./dev.db`.
+Local SQLite is unchanged: copy `.env.example` to `.env` and run `npm run dev`.
 
 ## Scripts
 

@@ -36,10 +36,21 @@ export function isPoolerUrl(url: string) {
   }
 }
 
+/** Drop a Neon param that the Prisma engine rejects, then return the URL. */
+export function withoutChannelBinding(url: string) {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete("channel_binding");
+    return parsed.toString();
+  } catch {
+    return url.replace(/([?&])channel_binding=[^&]*/g, "$1").replace(/[?&]$/, "");
+  }
+}
+
 /** Extra params keep a serverless function from exhausting Neon’s pooler. */
 export function withServerlessParams(url: string) {
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(withoutChannelBinding(url));
     const pooled = parsed.hostname.includes("pooler");
     if (pooled && !parsed.searchParams.has("pgbouncer")) parsed.searchParams.set("pgbouncer", "true");
     if (!parsed.searchParams.has("connection_limit")) parsed.searchParams.set("connection_limit", "1");
@@ -49,7 +60,7 @@ export function withServerlessParams(url: string) {
     return parsed.toString();
   } catch {
     const sep = url.includes("?") ? "&" : "?";
-    return `${url}${sep}connection_limit=1&pool_timeout=20&connect_timeout=15`;
+    return `${withoutChannelBinding(url)}${sep}connection_limit=1&pool_timeout=20&connect_timeout=15`;
   }
 }
 
@@ -62,18 +73,25 @@ export function productionDatabaseError(databaseUrl: string | undefined) {
   return [
     "Balance cannot use a SQLite file on Vercel, so /login returns 500.",
     found,
-    "Delete the file: DATABASE_URL, connect Neon Postgres (free), and redeploy.",
-    "Required: DATABASE_URL (pooled) and DATABASE_URL_UNPOOLED or DIRECT_URL (direct, for migrations).",
-    "Also set NEXT_PUBLIC_APP_URL=https://balance-woad-six.vercel.app.",
+    "DATABASE_URL must be the pooled Neon URL and DATABASE_URL_UNPOOLED the direct Neon URL.",
   ].join(" ");
 }
 
 export function resolveDatabase(env: NodeJS.ProcessEnv = process.env): ResolvedDatabase {
   const databaseUrl = read(env, "DATABASE_URL");
-  const postgresFallback = firstPostgres([read(env, "POSTGRES_PRISMA_URL"), read(env, "POSTGRES_URL")]);
+  const prismaPooled = firstPostgres([
+    read(env, "DATABASE_POSTGRES_PRISMA_URL"),
+    read(env, "POSTGRES_PRISMA_URL"),
+  ]);
+  const postgresFallback = firstPostgres([
+    prismaPooled,
+    read(env, "DATABASE_POSTGRES_URL"),
+    read(env, "POSTGRES_URL"),
+  ]);
   const direct = firstPostgres([
-    read(env, "DIRECT_URL"),
     read(env, "DATABASE_URL_UNPOOLED"),
+    read(env, "DATABASE_POSTGRES_URL_NON_POOLING"),
+    read(env, "DIRECT_URL"),
     read(env, "POSTGRES_URL_NON_POOLING"),
   ]);
   const onVercel = env.VERCEL === "1";
@@ -92,7 +110,10 @@ export function resolveDatabase(env: NodeJS.ProcessEnv = process.env): ResolvedD
     return { provider: "sqlite", databaseUrl: isSqliteUrl(databaseUrl) ? databaseUrl : "file:./dev.db" };
   }
 
-  const postgresUrl = isPostgresUrl(databaseUrl) ? databaseUrl : postgresFallback;
+  let postgresUrl = isPostgresUrl(databaseUrl) ? databaseUrl : postgresFallback;
+  if (postgresUrl && prismaPooled && !isPoolerUrl(postgresUrl) && isPoolerUrl(prismaPooled)) {
+    postgresUrl = prismaPooled;
+  }
   if (!postgresUrl) {
     throw new Error(productionDatabaseError(databaseUrl));
   }
@@ -100,6 +121,6 @@ export function resolveDatabase(env: NodeJS.ProcessEnv = process.env): ResolvedD
   return {
     provider: "postgresql",
     databaseUrl: withServerlessParams(postgresUrl),
-    directUrl: direct ?? postgresUrl,
+    directUrl: withoutChannelBinding(direct ?? postgresUrl),
   };
 }

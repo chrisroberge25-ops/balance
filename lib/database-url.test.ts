@@ -27,17 +27,37 @@ test("explicit postgres URL is used locally", () => {
   assert.doesNotMatch(resolved.databaseUrl, /pgbouncer=true/);
 });
 
-test("vercel ignores a stale sqlite DATABASE_URL when Neon vars exist", () => {
+test("vercel uses Neon DATABASE_URL and DATABASE_URL_UNPOOLED", () => {
   const resolved = resolveDatabase({
     VERCEL: "1",
-    DATABASE_URL: "file:./dev.db",
-    POSTGRES_PRISMA_URL: POOLED,
+    DATABASE_URL: POOLED,
     DATABASE_URL_UNPOOLED: DIRECT,
+    DATABASE_POSTGRES_PRISMA_URL: POOLED,
+    DATABASE_POSTGRES_URL_NON_POOLING: DIRECT,
   });
   assert.equal(resolved.provider, "postgresql");
   assert.equal(resolved.directUrl, DIRECT);
   assert.match(resolved.databaseUrl, /pgbouncer=true/);
   assert.match(resolved.databaseUrl, /connection_limit=1/);
+});
+
+test("vercel uses prefixed Neon URLs when DATABASE_URL is still a file", () => {
+  const resolved = resolveDatabase({
+    VERCEL: "1",
+    DATABASE_URL: "file:./dev.db",
+    DATABASE_POSTGRES_PRISMA_URL: POOLED,
+    DATABASE_POSTGRES_URL_NON_POOLING: DIRECT,
+  });
+  assert.equal(resolved.provider, "postgresql");
+  assert.equal(resolved.directUrl, DIRECT);
+  assert.match(resolved.databaseUrl, /ep-example-pooler/);
+});
+
+test("channel_binding is removed from Neon URLs", () => {
+  const raw = `${POOLED}&channel_binding=require`;
+  const url = withServerlessParams(raw);
+  assert.doesNotMatch(url, /channel_binding/);
+  assert.match(url, /pgbouncer=true/);
 });
 
 test("vercel rejects sqlite when no postgres URL exists", () => {
