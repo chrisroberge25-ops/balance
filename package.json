@@ -3,14 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && prisma db push --skip-generate && tsx prisma/seed.ts && next build",
+    "dev": "tsx scripts/prepare-database.ts && next dev",
+    "build": "tsx scripts/prepare-database.ts && next build",
     "start": "next start",
     "lint": "eslint",
-    "db:push": "prisma db push",
+    "db:setup": "tsx scripts/prepare-database.ts",
+    "db:push": "tsx scripts/prepare-database.ts",
+    "db:migrate": "tsx scripts/prepare-database.ts",
     "db:seed": "tsx prisma/seed.ts",
     "test": "tsx --test lib/*.test.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "tsx scripts/prepare-database.ts --generate-only"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -39,7 +39,7 @@ The demo workspace includes the sanitized 2025 Entry Log from the source workboo
 
 ## Stack
 
-Next.js App Router, TypeScript, Tailwind CSS, SQLite via Prisma, Recharts. UI is custom and uses the same patterns as a small shadcn-style kit (buttons, fields, cards) without a CLI install.
+Next.js App Router, TypeScript, Tailwind CSS, Prisma (Postgres in production, SQLite locally), Recharts. UI is custom and uses the same patterns as a small shadcn-style kit (buttons, fields, cards) without a CLI install.
 
 ## Run it
 
@@ -74,7 +74,10 @@ Copy `.env.example` to `.env`.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | SQLite file, default `file:./dev.db` (created under `prisma/`) |
+| `DATABASE_URL` | Local SQLite file (`file:./dev.db`, created under `prisma/`) or a hosted Postgres URL. Production must be Postgres. |
+| `DIRECT_URL` | Direct Postgres URL used by `prisma migrate deploy`. Optional when `DATABASE_URL_UNPOOLED` is set. |
+| `DATABASE_URL_UNPOOLED` | Set by the Neon integration. Used as the migration URL when `DIRECT_URL` is empty. |
+| `DATABASE_PROVIDER` | Optional. `sqlite` forces the local file database. `postgresql` forces Postgres. Ignored on Vercel, which always uses Postgres. |
 | `NEXT_PUBLIC_APP_URL` | Public origin, used to build the Google redirect URI |
 | `GOOGLE_CLIENT_ID` | OAuth client id. Blank keeps the stub |
 | `GOOGLE_CLIENT_SECRET` | OAuth secret. Token exchange is still stubbed in this build |
@@ -90,12 +93,52 @@ Google scope: `https://www.googleapis.com/auth/calendar.readonly`.
 
 ## Deploy
 
-The app is a standard Next.js server build. SQLite fits a single long-running Node process. On Vercel, replace `DATABASE_URL` with a hosted SQLite-compatible database or another Prisma datasource before you expect data to survive cold starts. `npm run build` generates the Prisma client, applies the schema, seeds the demo user when the database is empty, and then builds Next.js.
+Production runs on Vercel. A SQLite file (`file:./dev.db`) is created during the build and then disappears on the serverless filesystem, so `/login` returns 500. Production needs hosted Postgres.
+
+`npm run build` generates the Prisma client, applies the schema (`prisma migrate deploy` for Postgres, `prisma db push` for local SQLite), seeds `demo@balance.app` / `balance-demo` when the database has no users, then builds Next.js. On Vercel that build fails fast if `DATABASE_URL` is still a `file:` URL and no Postgres URL is present.
+
+### Vercel env
+
+Set these on the `balance` project for Production, Preview, and Development, then redeploy:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | Neon pooled URL (`-pooler` host, `sslmode=require`). The integration sets this. |
+| `DATABASE_URL_UNPOOLED` | Neon direct URL (no `-pooler`). The integration sets this. `DIRECT_URL` is the same string if you are not using Neon’s name. |
+| `NEXT_PUBLIC_APP_URL` | `https://balance-woad-six.vercel.app` |
+
+Leave `GOOGLE_*` and `STRIPE_*` unset. The app keeps its stubs.
+
+The project already has `DATABASE_URL=file:./dev.db`. Delete that variable before connecting Neon. The integration does not overwrite an existing `DATABASE_URL`.
+
+### Provision Neon (free)
+
+Neon is the Vercel Marketplace Postgres. The team install can already exist; the database still has to be created and connected to this project.
+
+1. Open the [balance project env vars](https://vercel.com/balance-3a55/balance/settings/environment-variables) and delete `DATABASE_URL` if its value is `file:./dev.db`.
+2. Open [Neon in the Vercel Marketplace](https://vercel.com/marketplace/neon) and create a database on the **Free** plan, or from a linked checkout run:
+   ```bash
+   vercel integration add neon --name balance --plan free -e production -e preview -e development
+   ```
+3. Connect the resource to the `balance` project. Confirm `DATABASE_URL` and `DATABASE_URL_UNPOOLED` exist and are not `file:` URLs.
+4. Set `NEXT_PUBLIC_APP_URL` to `https://balance-woad-six.vercel.app`.
+5. Merge and redeploy. The build migrates `prisma/migrations` and seeds the demo user.
+
+### Confirm login after deploy
+
+```bash
+curl -sI https://balance-woad-six.vercel.app/login
+```
+
+Expect `HTTP/2 200`. Open `/login`, submit `demo@balance.app` / `balance-demo`, and land on `/app`.
+
+Local SQLite is unchanged: copy `.env.example` to `.env` and run `npm run dev`. To point a laptop at Postgres, set `DATABASE_URL` and `DIRECT_URL` (or `DATABASE_URL_UNPOOLED`) to Postgres URLs instead of `file:./dev.db`.
 
 ## Scripts
 
-- `npm run dev` — local dev server
-- `npm run build` — generate client, push schema, seed if empty, production build
+- `npm run dev` — apply the local schema, seed when empty, start the dev server
+- `npm run build` — generate the client, migrate (Postgres) or push (SQLite), seed when empty, production build
 - `npm start` — serve the production build
-- `npm test` — parser and untracked-time tests
+- `npm test` — parser, untracked-time, and database-url tests
+- `npm run db:setup` — generate the client, apply the schema, and seed when empty
 - `npm run db:seed` — seed again (no-op once a user exists)
